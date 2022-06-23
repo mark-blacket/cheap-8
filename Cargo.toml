@@ -1,0 +1,13 @@
+[package]
+name = "chip8"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+input = "0.7"
+libc = "0.2"
+
+[dependencies.cursive]
+version = "0.18"
+default_features = false
+features = ["termion-backend"]
