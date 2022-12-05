@@ -1,5 +1,3 @@
 # Terminal-based toy CHIP-8 emulator
 
-Work in progress
-
-Depends on cursive and libinput
+A project that I got bored of, maybe I'll finish it sometimes
