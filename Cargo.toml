@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 input = "0.7"
 libc = "0.2"
+rand = "0.8"
 
 [dependencies.cursive]
 version = "0.18"

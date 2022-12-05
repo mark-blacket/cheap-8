@@ -1,8 +1,10 @@
 mod mem;
 
 use std::ops::{Deref, DerefMut};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use crate::keys::State;
+use rand;
+
 pub use mem::RAM;
 
 #[derive(Debug, Clone)]
@@ -56,11 +58,11 @@ pub struct CPU {
     stack: Stack,
     ram:   RAM,
     tx:    Sender<Frame>,
-    rx:    Receiver<State>,
+    keys:  Arc<Mutex<State>>
 }
 
 impl CPU {
-    pub fn new(rx: Receiver<State>, tx: Sender<Frame>, ram: mem::RAM) -> Self {
+    pub fn new(keys: Arc<Mutex<State>>, tx: Sender<Frame>, ram: RAM) -> Self {
         CPU {
             vreg:  [0; 16],
             ireg:  0,
@@ -69,7 +71,7 @@ impl CPU {
             pc:    0x200,
             fbuf:  Frame([0; 32]),
             stack: Stack::new(),
-            ram, tx, rx
+            ram, tx, keys
         }
     }
 
@@ -105,10 +107,13 @@ impl CPU {
                 }
             },
             0x6 => vreg!(op.x()) = op.num(),
-            0x7 => vreg!(op.x()) += op.num(),
+            0x7 => {
+                let (res, _) = vreg!(op.x()).overflowing_add(op.num());
+                vreg!(op.x()) = res;
+            },
             0x8 => return self.submode_8(op.z(), op.x(), op.y()),
             0x9 if op.z() == 0 => {
-                if vreg!(op.x()) == vreg!(op.y()) {
+                if vreg!(op.x()) != vreg!(op.y()) {
                     self.pc += 2;
                 }
             },
@@ -117,7 +122,7 @@ impl CPU {
                 self.pc = op.addr() + self.vreg[0] as u16;
                 return Ok(true)
             },
-            0xC => vreg!(op.x()) = rnd() & op.num(),
+            0xC => vreg!(op.x()) = rand::random::<u8>() & op.num(),
             0xD => {
                 let sprite = self.ram.sprite(self.ireg, op.z());
                 let x = vreg!(op.x());
@@ -133,8 +138,7 @@ impl CPU {
                     .map_err(|_| String::from("Display error"))?
             },
             0xE => {
-                let i = self.rx.iter().last()
-                    .ok_or(String::from("Error reading key input"))?.state;
+                let i = self.keys.lock().unwrap().state;
                 match op.num() {
                     0x9E => if i & (1 << op.x()) >  0 { self.pc += 2 },
                     0xA1 => if i & (1 << op.x()) == 0 { self.pc += 2 },
@@ -172,19 +176,20 @@ impl CPU {
                 vreg!(x) -= vreg!(y);
             },
             0x6 => {
-                vreg!(0xF) = vreg!(y) & 1;
-                vreg!(x) = vreg!(y) >> 1;
+                vreg!(0xF) = vreg!(x) & 1;
+                vreg!(x) >>= 1;
             },
             0x7 => {
                 carry!(vreg!(y) > vreg!(x));
                 vreg!(x) = vreg!(y) - vreg!(x);
             },
             0xE => {
-                vreg!(0xF) = vreg!(y) >> 7;
-                vreg!(x) = vreg!(y) << 1;
+                vreg!(0xF) = vreg!(x) >> 7;
+                vreg!(x) <<= 1;
             },
             _   => return Err(format!("Invalid opcode 0x8{:x}{:x}{:x}", x, y, sub)),
         };
+        self.pc += 2;
         Ok(true)
     }
 
@@ -196,30 +201,42 @@ impl CPU {
         match sub {
             0x07 => vreg!(x) = self.dt,
             0x0A => {
-                match self.rx.recv() {
-                    Ok(s) => {
-                        if s.pressed == false {
-                            return Ok(true);
-                        } else {
-                            vreg!(x) = s.key as u8;
-                        }
-                    },
-                    Err(_) => {
-                        return Err(String::from("Error reading key input"));
-                    }
-                };
+                let s = self.keys.lock().unwrap();
+                if s.pressed == false {
+                    return Ok(true);
+                } else {
+                    vreg!(x) = s.key as u8;
+                }
             },
             0x15 => self.dt = vreg!(x),
             0x18 => self.st = vreg!(x),
             0x1E => self.ireg += vreg!(x) as u16,
-            0x29 => self.ireg = (vreg!(x) & 0xF * 5) as u16,
-            0x33 => (),
-            0x55 => (),
-            0x65 => (),
+            0x29 => self.ireg = ((vreg!(x) & 0xF) * 5) as u16,
+            0x33 => {
+                let vx = vreg!(x);
+                self.ram.set(self.ireg,     vx / 100);
+                self.ram.set(self.ireg + 1, vx / 10 % 10);
+                self.ram.set(self.ireg + 2, vx % 10);
+            },
+            0x55 => {
+                for i in 0..16 {
+                    self.ram.set(self.ireg + i, vreg!(i));
+                }
+            },
+            0x65 => {
+                for i in 0..16 {
+                    vreg!(i) = self.ram.get(self.ireg + i);
+                }
+            },
+
             _    => return Err(format!("Invalid opcode 0xF{:x}{:x}", x, sub)),
         };
+        self.pc += 2;
         Ok(true)
     }
-}
 
-fn rnd() -> u8 { 0 }
+    pub fn tick(&mut self) {
+        if self.dt > 0 { self.dt -= 1; }
+        if self.st > 0 { self.st -= 1; }
+    }
+}

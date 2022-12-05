@@ -1,6 +1,4 @@
 use std::fmt;
-use std::io::Read;
-use std::fs::File;
 
 const SPRITES: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0,  // 0
@@ -50,14 +48,21 @@ impl RAM {
         Self(m)
     }
 
-    pub fn fill(&mut self, rom: &File) -> Result<(), String> {
-        let len = rom.metadata().unwrap().len();
+    pub fn set(&mut self, addr: u16, byte: u8) {
+        self.0[addr as usize] = byte;
+    }
+
+    pub fn get(&mut self, addr: u16) -> u8 {
+        self.0[addr as usize]
+    }
+
+    pub fn fill(&mut self, rom: &Vec<u8>) -> Result<(), String> {
+        let len = rom.len();
         if len > (4096 - 0x200) {
             return Err(format!("Program won't fit in RAM ({} bytes)", len));
         }
         self.0.iter_mut().skip(0x200)
-            .zip(rom.bytes().map(|x| x.unwrap()))
-            .for_each(|(d, s)| *d = s);
+            .zip(rom).for_each(|(d, s)| *d = *s);
         Ok(())
     }
 

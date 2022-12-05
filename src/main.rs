@@ -2,38 +2,51 @@ mod cpu;
 mod keys;
 mod ui;
 
+#[cfg(test)]
+mod tests;
+
 use std::env::args;
 use std::fs::File;
-use std::sync::mpsc;
+use std::io::Read;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 use cpu::{CPU, RAM};
+use keys::State;
+
+const TIMING: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
 fn main() {
+    let key_state = Arc::new(Mutex::new(State { key: 0, pressed: false, state: 0 }));
+    let (cpu_tx, cpu_rx) = mpsc::channel(); // cpu to ui
+    let (key_tx, key_rx) = mpsc::channel(); // input to ui
+    let (log_tx, log_rx) = mpsc::channel(); // logging
+
     let fname = args().nth(1).expect("Usage: chip8 file_name");
-    let f = File::open(fname).expect("Error opening file");
+    let mut f = File::open(&fname).expect("Error opening file");
     let mut ram = RAM::new();
-    ram.fill(&f).unwrap();
+    let mut rom = Vec::with_capacity(1024);
+    f.read_to_end(&mut rom).expect("Error loading file");
+    ram.fill(&rom).unwrap();
+    log_tx.send(String::from(format!("{} loaded", fname))).unwrap();
 
-    let (i_tx, i_rx) = mpsc::channel(); // input to cpu
-    let (o_tx, o_rx) = mpsc::channel(); // cpu to ui
-    let (k_tx, k_rx) = mpsc::channel(); // input to ui
-    let (l_tx, l_rx) = mpsc::channel(); // logging
+    keys::run(key_state.clone(), key_tx);
+    let ui_thread = ui::run(cpu_rx, key_rx, log_rx);
 
-    keys::run(i_tx, k_tx);
-    let ui_thread = ui::run(o_rx, k_rx, l_rx);
-
-    let mut cpu = CPU::new(i_rx, o_tx, ram);
-    loop {
+    let mut cpu = CPU::new(key_state, cpu_tx, ram);
+    let mut timer = Instant::now();
+    while !ui_thread.is_finished() {
         match cpu.exec() {
-            Ok(x)  => match x {
-                true  => (),
-                false => {
-                    l_tx.send(String::from("Execution stopped")).unwrap();
-                    break;
-                },
+            Ok(x) => if !x {
+                log_tx.send(String::from("Execution stopped")).unwrap();
+                break;
             },
-            Err(s) => l_tx.send(s).unwrap(),
+            Err(s) => log_tx.send(s).unwrap(),
         }
+        if timer.elapsed() >= TIMING {
+            cpu.tick();
+            timer = Instant::now();
+        }
+        thread::sleep(Duration::from_nanos(100));
     }
-
-    ui_thread.join().unwrap();
 }

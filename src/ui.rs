@@ -39,9 +39,9 @@ fn keys_thread(cnt: TextContent, rx: Receiver<State>) -> JoinHandle<()> {
         1, 2, 3, 12, 4, 5, 6, 13, 7, 8, 9, 14, 10, 0, 11, 15
     ];
     thread::spawn(move || {
-        rx.iter().for_each(|msg| {
+        rx.iter().for_each(|s| {
             let res = ORDER.iter().map(|n| {
-                let mut x = if msg.state & (1 << n) == 0 {
+                let mut x = if s.state & (1 << n) == 0 {
                     format!("{:x}", n)
                 } else {
                     format!("\x1b[1m{:x}\x1b[22m", n)

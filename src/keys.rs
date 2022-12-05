@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::os::unix::{fs::OpenOptionsExt, io::{RawFd, FromRawFd, IntoRawFd}};
 use std::path::Path;
-use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use std::thread::{self, JoinHandle};
 use input::{Libinput, LibinputInterface};
 use input::event::{Event, keyboard::{KeyboardEventTrait, KeyState}};
@@ -16,7 +16,7 @@ const INPUTS: [u32; 16] = [
 
 struct Interface;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct State { pub key: usize, pub pressed: bool, pub state: u16 }
 
 impl LibinputInterface for Interface {
@@ -37,27 +37,29 @@ impl LibinputInterface for Interface {
     }
 }
 
-pub fn run(i_tx: Sender<State>, k_tx: Sender<State>) -> JoinHandle<()> {
+pub fn run(rs: Arc<Mutex<State>>, tx: Sender<State>) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut input = Libinput::new_with_udev(Interface);
         input.udev_assign_seat("seat0").unwrap();
-        let mut state = 0u16;
+        let mut keys = 0u16;
         loop {
             input.dispatch().unwrap();
             for event in &mut input {
+                // only works under root
                 if let Event::Keyboard(e) = event {
                     if let Some(i) = INPUTS.iter().position(|&x| x == e.key()) {
-                        state ^= 1 << i;
-                        let k = State {
+                        keys ^= 1 << i;
+                        let state = State {
                             key: i,
                             pressed: match e.key_state() {
                                 KeyState::Pressed  => true,
                                 KeyState::Released => false,
                             },
-                            state
+                            state: keys
                         };
-                        i_tx.send(k.clone()).unwrap();
-                        k_tx.send(k).unwrap();
+                        tx.send(state.clone()).unwrap();
+                        let mut mutex = rs.lock().unwrap();
+                        *mutex = state;
                     }
                 }
             }
