@@ -1,3 +1,5 @@
 /target
+/bin
 /roms
+.crates*
 tests.rs

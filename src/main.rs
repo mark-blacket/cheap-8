@@ -32,10 +32,10 @@ fn main() {
 
     keys::run(key_state.clone(), key_tx);
     let ui_thread = ui::run(cpu_rx, key_rx, log_rx);
-
     let mut cpu = CPU::new(key_state, cpu_tx, ram);
     let mut timer = Instant::now();
-    while !ui_thread.is_finished() {
+
+    loop {
         match cpu.exec() {
             Ok(x) => if !x {
                 log_tx.send(String::from("Execution stopped")).unwrap();
@@ -49,4 +49,5 @@ fn main() {
         }
         thread::sleep(Duration::from_nanos(100));
     }
+    ui_thread.join().unwrap();
 }

@@ -3,12 +3,16 @@ name = "chip8"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "chip8_ui_test"
+path = "src/ui_test.rs"
+
 [dependencies]
 input = "0.7"
 libc = "0.2"
 rand = "0.8"
 
 [dependencies.cursive]
-version = "0.18"
+version = "0.20"
 default_features = false
-features = ["termion-backend"]
+features = ["termion-backend", "ansi"]

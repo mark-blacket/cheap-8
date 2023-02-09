@@ -51,10 +51,7 @@ pub fn run(rs: Arc<Mutex<State>>, tx: Sender<State>) -> JoinHandle<()> {
                         keys ^= 1 << i;
                         let state = State {
                             key: i,
-                            pressed: match e.key_state() {
-                                KeyState::Pressed  => true,
-                                KeyState::Released => false,
-                            },
+                            pressed: e.key_state() == KeyState::Pressed,
                             state: keys
                         };
                         tx.send(state.clone()).unwrap();

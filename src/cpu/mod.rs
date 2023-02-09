@@ -8,7 +8,7 @@ use rand;
 pub use mem::RAM;
 
 #[derive(Debug, Clone)]
-pub struct Frame([u64; 32]);
+pub struct Frame(pub [u64; 32]);
 
 impl Deref for Frame {
     type Target = [u64; 32];

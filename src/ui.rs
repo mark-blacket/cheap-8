@@ -1,7 +1,8 @@
 use std::sync::mpsc::Receiver;
 use std::thread::{self, JoinHandle};
-use cursive::view::{Resizable, Scrollable};
+use cursive::view::{Resizable, Scrollable, ScrollStrategy};
 use cursive::views::{Dialog, LinearLayout, TextContent, TextView};
+use cursive::utils::markup::ansi;
 use crate::{cpu::Frame, keys::State};
 
 fn screen_thread(cnt: TextContent, rx: Receiver<Frame>) -> JoinHandle<()> {
@@ -42,9 +43,9 @@ fn keys_thread(cnt: TextContent, rx: Receiver<State>) -> JoinHandle<()> {
         rx.iter().for_each(|s| {
             let res = ORDER.iter().map(|n| {
                 let mut x = if s.state & (1 << n) == 0 {
-                    format!("{:x}", n)
+                    format!("\x1b[2m{:X}\x1b[0m", n)
                 } else {
-                    format!("\x1b[1m{:x}\x1b[22m", n)
+                    format!("\x1b[1;4m{:X}\x1b[0m", n)
                 };
                 match n {
                     12..=14 => x.push('\n'),
@@ -53,7 +54,7 @@ fn keys_thread(cnt: TextContent, rx: Receiver<State>) -> JoinHandle<()> {
                 };
                 x
             }).collect::<String>();
-            cnt.set_content(res);
+            cnt.set_content(ansi::parse(res));
         })
     })
 }
@@ -61,27 +62,30 @@ fn keys_thread(cnt: TextContent, rx: Receiver<State>) -> JoinHandle<()> {
 pub fn run(o_rx: Receiver<Frame>, k_rx: Receiver<State>, 
            l_rx: Receiver<String>) -> JoinHandle<()> {
     thread::spawn(move || {
-        let screen = TextContent::new(vec!["#".repeat(64); 16].join("\n"));
-        let logs = TextContent::new("logs maybe");
+        let screen = TextContent::new(vec!["\u{2588}".repeat(64); 16].join("\n"));
+        let logs = TextContent::new("");
         let keys = TextContent::new("1 2 3 C\n4 5 6 D\n7 8 9 E\nA 0 B F");
         
-        screen_thread(screen.clone(), o_rx); 
-        logs_thread(logs.clone(), l_rx); 
-        keys_thread(keys.clone(), k_rx); 
-
-        let s_view = TextView::new_with_content(screen);
-        let l_view = TextView::new_with_content(logs)
+        let s_view = TextView::new_with_content(screen.clone());
+        let l_view = TextView::new_with_content(logs.clone())
+            .scrollable().scroll_y(true)
+            .scroll_strategy(ScrollStrategy::StickToBottom)
             .fixed_size((53, 4));
-        let k_view = TextView::new_with_content(keys)
+        let k_view = TextView::new_with_content(keys.clone())
             .fixed_size((7, 4));
+
+        screen_thread(screen, o_rx); 
+        logs_thread(logs, l_rx); 
+        keys_thread(keys, k_rx); 
 
         let mut siv = cursive::default();
         siv.add_global_callback('.', |s| s.quit());
         siv.add_layer(LinearLayout::vertical()
             .child(Dialog::around(s_view))
             .child(LinearLayout::horizontal()
-                .child(Dialog::around(l_view).scrollable())
+                .child(Dialog::around(l_view))
                 .child(Dialog::around(k_view))));
+        siv.set_autorefresh(true);
         siv.run();
     })
 }
